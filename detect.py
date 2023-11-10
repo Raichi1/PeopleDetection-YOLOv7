@@ -71,7 +71,15 @@ def inside_boxes(xdet, ydet, boxes, valid_bx):
             return True
     return False
 
-# def direction_object(current_xdet, current_ydet, prev_xdet, prev_ydet):
+def direction_object(current_xdet, current_ydet, prev_xdet, prev_ydet):
+    xdif = prev_xdet - current_xdet
+    ydif = prev_ydet - current_ydet
+    if abs(ydif) > abs(xdif):
+        if ydif < 0: return 'DOWN'
+        else: return 'UP'
+    else:
+        if xdif > 0: return 'LEFT'
+        else : return 'RIGHT' 
 
 
 '''################################## FUNCTIONS FOR COUNTING CLASSES ###################################'''
@@ -171,7 +179,7 @@ def detect(save_img=False):
 
         # # Process detections
         elementsA, elementsB, elementsC, elementsD = 0, 0, 0, 0
-        
+        left, right, up, down = 0, 0, 0, 0
         for i, det in enumerate(pred):  # detections per image
             gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             if len(det):
@@ -238,26 +246,38 @@ def detect(save_img=False):
                 a, b = new.ravel()
                 c, d = prev.ravel()
                 if(inside_boxes(a,b,next_points, match_boxes)):
+                    # Counting object direction
+                    direction = direction_object(a,b,c,d)
+                    if direction == 'UP': up += 1
+                    elif direction == 'DOWN': down += 1
+                    elif direction == 'LEFT': left += 1
+                    else: right += 1
+
                     auxiliar_points = np.concatenate((auxiliar_points,[[a,b]]), axis=0)
                     mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (159,51,255), 2)
                     im0s = cv2.circle(im0s, (int(a), int(b)), 5, (51,51,255), -1)
             im0s = cv2.add(im0s, mask)
             next_points = []
-            print(auxiliar_points.shape)
+
         # Save prev frames
         if prev_points is None:
             mask = np.zeros_like(im0s)
             prev_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
-            # for pp in prev_points:
-                # a, b = pp.ravel()
-                # if (inside_boxes(a,b,next_points)):
         else:
-            prev_points = good_new.reshape(-1,1,2)
-
+            prev_points = auxiliar_points.reshape(-1,1,2)
+            save_new_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
+            prev_points = np.concatenate((prev_points,save_new_points), axis = 0)
+            prev_points = np.array(prev_points, dtype= np.float32)
         
         prev_frame = im0s
         prev_det = det
         prev_gray = frame_gray.copy()
+
+        # Show count of object direction
+        cv2.putText(im0s, f"Dir Left: {left}", (0,400),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
+        cv2.putText(im0s, f"Dir Right: {right}", (0,440),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
+        cv2.putText(im0s, f"Dir Up: {up}", (180,400), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
+        cv2.putText(im0s, f"Dir Down: {down}", (180,440), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
 
         # Drawing zones in frame
         cv2.polylines(img=im0s, pts=[zoneA], isClosed = True, color = (240,255,51),  thickness=3)
