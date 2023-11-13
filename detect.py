@@ -7,6 +7,10 @@ import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 import numpy as np
+from tkinter import *
+from PIL import Image
+from PIL import ImageTk
+import tkinter as tk
 import matplotlib.path as mplPath
 
 from models.experimental import attempt_load
@@ -98,25 +102,33 @@ def inside_area(xcenter, ycenter):
     else:
         return None
 
+''' ################################## VARIABLE VIDEO ################################## '''
+dataset = None
+model = None
+names = None
+colors = None
+device = None
+half = None
+old_img_w = old_img_h = old_img_b = None
+# variables to work with the previous frame
+prev_frame = None
+prev_det = None
+prev_gray = None
+prev_colors = None
+# variables to work with the previous frame for apply Optical Flow
+next_points = [] # Verify points detect
+prev_points = None
+mask = None
+
 
 
 def detect(save_img=False):
-    source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
-    save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
+    global dataset, model, names, colors, prev_colors, old_img_w, old_img_h, old_img_b, device, half
+    source, weights, imgsz, trace = opt.source, opt.weights, opt.img_size, not opt.no_trace
 
     # Filtering by people by default
     if opt.classes is None:
         opt.classes = [0]
-
-    # variables to work with the previous frame
-    prev_frame = None
-    prev_det = None
-    prev_gray = None
-
-    # variables to work with the previous frame for apply Optical Flow
-    next_points = [] # Verify points detect
-    prev_points = None
-    mask = None
 
     # Initialize
     set_logging()
@@ -133,7 +145,6 @@ def detect(save_img=False):
 
     if half:
         model.half()  # to FP16
-
     dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
@@ -150,145 +161,297 @@ def detect(save_img=False):
     old_img_b = 1
 
     t0 = time.time()
-    for path, img, im0s, vid_cap in dataset:
-        frame_gray = cv2.cvtColor(im0s, cv2.COLOR_BGR2GRAY)
 
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
-        img /= 255.0  # 0 - 255 to 0.0 - 1.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+    # for _, img, im0s,_ in dataset:
+        # frame_gray = cv2.cvtColor(im0s, cv2.COLOR_BGR2GRAY)
 
-        # Warmup
-        if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-            old_img_b = img.shape[0]
-            old_img_h = img.shape[2]
-            old_img_w = img.shape[3]
-            for i in range(3):
-                model(img, augment=opt.augment)[0]
+        # img = torch.from_numpy(img).to(device)
+        # img = img.half() if half else img.float()  # uint8 to fp16/32
+        # img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        # if img.ndimension() == 3:
+        #     img = img.unsqueeze(0)
 
-        # Inference
-        t1 = time_synchronized()
-        with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-            pred = model(img, augment=opt.augment)[0]
-        t2 = time_synchronized()
+        # # Warmup
+        # if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+        #     old_img_b = img.shape[0]
+        #     old_img_h = img.shape[2]
+        #     old_img_w = img.shape[3]
+        #     for i in range(3):
+        #         model(img, augment=opt.augment)[0]
+
+        # # Inference
+        # t1 = time_synchronized()
+        # with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
+        #     pred = model(img, augment=opt.augment)[0]
+        # t2 = time_synchronized()
         
-        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t3 = time_synchronized()
+        # pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+        # t3 = time_synchronized()
 
 
-        # # Process detections
-        elementsA, elementsB, elementsC, elementsD = 0, 0, 0, 0
-        left, right, up, down = 0, 0, 0, 0
-        for i, det in enumerate(pred):  # detections per image
-            gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-            if len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0s.shape).round()
+        # # # Process detections
+        # elementsA, elementsB, elementsC, elementsD = 0, 0, 0, 0
+        # left, right, up, down = 0, 0, 0, 0
+        # for i, det in enumerate(pred):  # detections per image
+        #     gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        #     if len(det):
+        #         # Rescale boxes from img_size to im0 size
+        #         det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0s.shape).round()
 
-                # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    cv2.putText(im0s, f"{names[int(c)]}: {n}", (0,25), cv2.FONT_HERSHEY_SIMPLEX, 1, Color[0], 2)
+        #         # Print results
+        #         for c in det[:, -1].unique():
+        #             n = (det[:, -1] == c).sum()  # detections per class
+        #             cv2.putText(im0s, f"{names[int(c)]}: {n}", (0,25), cv2.FONT_HERSHEY_SIMPLEX, 1, Color[0], 2)
 
-                # Write results
-                for *xyxy, conf, cls in det:
-                    if save_img or view_img:  # Add bbox to image
-                        xm,ym = middle_point(xyxy)
-                        ch = inside_area(xm,ym)
+        #         # Write results
+        #         for *xyxy, conf, cls in det:
+        #             # Add bbox to image
+        #             xm,ym = middle_point(xyxy)
+        #             ch = inside_area(xm,ym)
 
-                        # Verifies whether a detected object is within any zone
-                        if ch is not None:
-                            if ch == 'A': elementsA = elementsA + 1
-                            elif ch == 'B': elementsB = elementsB + 1
-                            elif ch == 'C': elementsC = elementsC + 1
-                            else: elementsD = elementsD + 1
-                        
-                        label = f'{names[int(cls)]}{conf:.2f}'
-                        plot_one_box(xyxy, im0s, label=label, color=colors[int(cls)], line_thickness=1)
-                        # Display the midpoint of each box in the current frame
-                        # cv2.circle(img = im0s, center =(xm,ym), radius=5, color=(0,255,0), thickness=1) #REF
+        #             # Verifies whether a detected object is within any zone
+        #             if ch is not None:
+        #                 if ch == 'A': elementsA = elementsA + 1
+        #                 elif ch == 'B': elementsB = elementsB + 1
+        #                 elif ch == 'C': elementsC = elementsC + 1
+        #                 else: elementsD = elementsD + 1
+                    
+        #             label = f'{names[int(cls)]}{conf:.2f}'
+        #             plot_one_box(xyxy, im0s, label=label, color=colors[int(cls)], line_thickness=1)
+        #             # Display the midpoint of each box in the current frame
+        #             # cv2.circle(img = im0s, center =(xm,ym), radius=5, color=(0,255,0), thickness=1) #REF
 
-                        # Verify exist previous points
-                        if prev_points is not None: 
-                            next_points.append(xyxy)
+        #             # Verify exist previous points
+        #             if prev_points is not None: 
+        #                 next_points.append(xyxy)
         
-        #display elements in areas
-        cv2.putText(im0s, f"Zona A: {elementsA}", (0,60),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
-        cv2.putText(im0s, f"Zona B: {elementsB}", (0,90),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
-        cv2.putText(im0s, f"Zona C: {elementsC}", (180,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
-        cv2.putText(im0s, f"Zona D: {elementsD}", (180,90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
+        # #display elements in areas
+        # cv2.putText(im0s, f"Zona A: {elementsA}", (0,60),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
+        # cv2.putText(im0s, f"Zona B: {elementsB}", (0,90),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
+        # cv2.putText(im0s, f"Zona C: {elementsC}", (180,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
+        # cv2.putText(im0s, f"Zona D: {elementsD}", (180,90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
 
-        # Storing the previously detected elements                
-        if prev_frame is not None:
-            for *xyxy, conf, cls in prev_det:
-                    if save_img or view_img:
-                        label = f'pp{conf:.2f}'
-                        plot_one_box(xyxy, im0s, label=label, color=prev_colors[int(cls)], line_thickness=1)
-            prev_det=[]
+        # # Storing the previously detected elements                
+        # if prev_frame is not None:
+        #     for *xyxy, conf, cls in prev_det:
+        #             label = f'pp{conf:.2f}'
+        #             plot_one_box(xyxy, im0s, label=label, color=prev_colors[int(cls)], line_thickness=1)
+        #     prev_det=[]
 
-        # Valid for optical flow application
-        if prev_points is not None:
+        # # Valid for optical flow application
+        # if prev_points is not None:
 
-            match_boxes = [False for _ in range(len(next_points))]
-            current_points, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, frame_gray, prev_points, None, **lk_params)
+        #     match_boxes = [False for _ in range(len(next_points))]
+        #     current_points, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, frame_gray, prev_points, None, **lk_params)
 
-            # Select good points of 'prev' and 'new' frame
-            if current_points is not None:
-                good_new = current_points[st==1]
-                good_prev = prev_points[st==1]
+        #     # Select good points of 'prev' and 'new' frame
+        #     if current_points is not None:
+        #         good_new = current_points[st==1]
+        #         good_prev = prev_points[st==1]
 
-            # Save points detection boxes
-            auxiliar_points = np.empty((0,2))
+        #     # Save points detection boxes
+        #     auxiliar_points = np.empty((0,2))
             
-            # Draw the tracks
-            for i, (new, prev) in enumerate(zip(good_new, good_prev)):
-                a, b = new.ravel()
-                c, d = prev.ravel()
-                if(inside_boxes(a,b,next_points, match_boxes)):
-                    # Counting object direction
-                    direction = direction_object(a,b,c,d)
-                    if direction == 'UP': up += 1
-                    elif direction == 'DOWN': down += 1
-                    elif direction == 'LEFT': left += 1
-                    else: right += 1
+        #     # Draw the tracks
+        #     for i, (new, prev) in enumerate(zip(good_new, good_prev)):
+        #         a, b = new.ravel()
+        #         c, d = prev.ravel()
+        #         if(inside_boxes(a,b,next_points, match_boxes)):
+        #             # Counting object direction
+        #             direction = direction_object(a,b,c,d)
+        #             if direction == 'UP': up += 1
+        #             elif direction == 'DOWN': down += 1
+        #             elif direction == 'LEFT': left += 1
+        #             else: right += 1
 
-                    auxiliar_points = np.concatenate((auxiliar_points,[[a,b]]), axis=0)
-                    mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (159,51,255), 2)
-                    im0s = cv2.circle(im0s, (int(a), int(b)), 5, (51,51,255), -1)
-            im0s = cv2.add(im0s, mask)
-            next_points = []
+        #             auxiliar_points = np.concatenate((auxiliar_points,[[a,b]]), axis=0)
+        #             mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (159,51,255), 2)
+        #             im0s = cv2.circle(im0s, (int(a), int(b)), 5, (51,51,255), -1)
+        #     im0s = cv2.add(im0s, mask)
+        #     next_points = []
 
-        # Save prev frames
-        if prev_points is None:
-            mask = np.zeros_like(im0s)
-            prev_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
-        else:
-            prev_points = auxiliar_points.reshape(-1,1,2)
-            save_new_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
-            prev_points = np.concatenate((prev_points,save_new_points), axis = 0)
-            prev_points = np.array(prev_points, dtype= np.float32)
+        # # Save prev frames
+        # if prev_points is None:
+        #     mask = np.zeros_like(im0s)
+        #     prev_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
+        # else:
+        #     prev_points = auxiliar_points.reshape(-1,1,2)
+        #     save_new_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
+        #     prev_points = np.concatenate((prev_points,save_new_points), axis = 0)
+        #     prev_points = np.array(prev_points, dtype= np.float32)
         
-        prev_frame = im0s
-        prev_det = det
-        prev_gray = frame_gray.copy()
+        # prev_frame = im0s
+        # prev_det = det
+        # prev_gray = frame_gray.copy()
 
-        # Show count of object direction
-        cv2.putText(im0s, f"Dir Left: {left}", (0,400),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
-        cv2.putText(im0s, f"Dir Right: {right}", (0,440),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
-        cv2.putText(im0s, f"Dir Up: {up}", (180,400), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
-        cv2.putText(im0s, f"Dir Down: {down}", (180,440), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
+        # # Show count of object direction
+        # cv2.putText(im0s, f"Left: {left}", (0,400),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
+        # cv2.putText(im0s, f"Right: {right}", (0,440),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
+        # cv2.putText(im0s, f"Up: {up}", (180,400), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
+        # cv2.putText(im0s, f"Down: {down}", (180,440), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
 
-        # Drawing zones in frame
-        cv2.polylines(img=im0s, pts=[zoneA], isClosed = True, color = (240,255,51),  thickness=3)
-        cv2.polylines(img=im0s, pts=[zoneB], isClosed = True, color = (51,255,94),   thickness=3)
-        cv2.polylines(img=im0s, pts=[zoneC], isClosed = True, color = (51,156,255),  thickness=3)
-        cv2.polylines(img=im0s, pts=[zoneD], isClosed = True, color = (255,50,250),  thickness=3)
+        # # Drawing zones in frame
+        # cv2.polylines(img=im0s, pts=[zoneA], isClosed = True, color = (240,255,51),  thickness=3)
+        # cv2.polylines(img=im0s, pts=[zoneB], isClosed = True, color = (51,255,94),   thickness=3)
+        # cv2.polylines(img=im0s, pts=[zoneC], isClosed = True, color = (51,156,255),  thickness=3)
+        # cv2.polylines(img=im0s, pts=[zoneD], isClosed = True, color = (255,50,250),  thickness=3)
         
-        #Show Video
-        cv2.imshow("YOLO-V7",im0s)
-        cv2.waitKey(20)
+        # # Show Video
+        # cv2.imshow("YOLO-V7",im0s)
+        # cv2.waitKey(20)
 
+
+def load_video():
+    global dataset, model, prev_frame, prev_det, prev_gray, next_points, prev_points, mask, names, colors, prev_colors
+    global old_img_w, old_img_h, old_img_b, device, half
+    _,img,im0s,_ = next(iter(dataset))
+
+    frame_gray = cv2.cvtColor(im0s, cv2.COLOR_BGR2GRAY)
+
+    img = torch.from_numpy(img).to(device)
+    img = img.half() if half else img.float()  # uint8 to fp16/32
+    img /= 255.0  # 0 - 255 to 0.0 - 1.0
+    if img.ndimension() == 3:
+        img = img.unsqueeze(0)
+
+    # Warmup
+    if device.type != 'cpu' and (old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+        old_img_b = img.shape[0]
+        old_img_h = img.shape[2]
+        old_img_w = img.shape[3]
+        for i in range(3):
+            model(img, augment=opt.augment)[0]
+
+    # Inference
+    t1 = time_synchronized()
+    with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
+        pred = model(img, augment=opt.augment)[0]
+    t2 = time_synchronized()
+        
+    pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+    t3 = time_synchronized()
+
+
+    # # Process detections
+    elementsA, elementsB, elementsC, elementsD = 0, 0, 0, 0
+    left, right, up, down = 0, 0, 0, 0
+    for i, det in enumerate(pred):  # detections per image
+        gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        if len(det):
+            # Rescale boxes from img_size to im0 size
+            det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0s.shape).round()
+
+            # Print results
+            for c in det[:, -1].unique():
+                n = (det[:, -1] == c).sum()  # detections per class
+                cv2.putText(im0s, f"{names[int(c)]}: {n}", (0,25), cv2.FONT_HERSHEY_SIMPLEX, 1, Color[0], 2)
+
+            # Write results
+            for *xyxy, conf, cls in det:
+                # Add bbox to image
+                xm,ym = middle_point(xyxy)
+                ch = inside_area(xm,ym)
+
+                # Verifies whether a detected object is within any zone
+                if ch is not None:
+                    if ch == 'A': elementsA = elementsA + 1
+                    elif ch == 'B': elementsB = elementsB + 1
+                    elif ch == 'C': elementsC = elementsC + 1
+                    else: elementsD = elementsD + 1
+                    
+                label = f'{names[int(cls)]}{conf:.2f}'
+                plot_one_box(xyxy, im0s, label=label, color=colors[int(cls)], line_thickness=1)
+                # Display the midpoint of each box in the current frame
+                # cv2.circle(img = im0s, center =(xm,ym), radius=5, color=(0,255,0), thickness=1) #REF
+
+                # Verify exist previous points
+                if prev_points is not None: 
+                    next_points.append(xyxy)
+        
+    #display elements in areas
+    cv2.putText(im0s, f"Zona A: {elementsA}", (0,60),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
+    cv2.putText(im0s, f"Zona B: {elementsB}", (0,90),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
+    cv2.putText(im0s, f"Zona C: {elementsC}", (180,60), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
+    cv2.putText(im0s, f"Zona D: {elementsD}", (180,90), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
+
+    # Storing the previously detected elements                
+    if prev_frame is not None:
+        for *xyxy, conf, cls in prev_det:
+                label = f'pp{conf:.2f}'
+                plot_one_box(xyxy, im0s, label=label, color=prev_colors[int(cls)], line_thickness=1)
+        prev_det=[]
+
+    # Valid for optical flow application
+    if prev_points is not None:
+        match_boxes = [False for _ in range(len(next_points))]
+        current_points, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, frame_gray, prev_points, None, **lk_params)
+
+        # Select good points of 'prev' and 'new' frame
+        if current_points is not None:
+            good_new = current_points[st==1]
+            good_prev = prev_points[st==1]
+
+        # Save points detection boxes
+        auxiliar_points = np.empty((0,2))
+            
+        # Draw the tracks
+        for i, (new, prev) in enumerate(zip(good_new, good_prev)):
+            a, b = new.ravel()
+            c, d = prev.ravel()
+            if(inside_boxes(a,b,next_points, match_boxes)):
+                # Counting object direction
+                direction = direction_object(a,b,c,d)
+                if direction == 'UP': up += 1
+                elif direction == 'DOWN': down += 1
+                elif direction == 'LEFT': left += 1
+                else: right += 1
+
+                auxiliar_points = np.concatenate((auxiliar_points,[[a,b]]), axis=0)
+                mask = cv2.line(mask, (int(a), int(b)), (int(c), int(d)), (159,51,255), 2)
+                im0s = cv2.circle(im0s, (int(a), int(b)), 5, (51,51,255), -1)
+        im0s = cv2.add(im0s, mask)
+        next_points = []
+
+    # Save prev frames
+    if prev_points is None:
+        mask = np.zeros_like(im0s)
+        prev_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
+    else:
+        prev_points = auxiliar_points.reshape(-1,1,2)
+        save_new_points = cv2.goodFeaturesToTrack(frame_gray, mask = None, **feature_params)
+        prev_points = np.concatenate((prev_points,save_new_points), axis = 0)
+        prev_points = np.array(prev_points, dtype= np.float32)
+        
+    prev_frame = im0s
+    prev_det = det
+    prev_gray = frame_gray.copy()
+
+    # Show count of object direction
+    cv2.putText(im0s, f"Left: {left}", (0,400),   cv2.FONT_HERSHEY_SIMPLEX, 1, (240,255,51),  2)
+    cv2.putText(im0s, f"Right: {right}", (0,440),   cv2.FONT_HERSHEY_SIMPLEX, 1, (51,255,94),   2)
+    cv2.putText(im0s, f"Up: {up}", (180,400), cv2.FONT_HERSHEY_SIMPLEX, 1, (51,156,255),  2)
+    cv2.putText(im0s, f"Down: {down}", (180,440), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,50,250),  2)
+
+    # Drawing zones in frame
+    cv2.polylines(img=im0s, pts=[zoneA], isClosed = True, color = (240,255,51),  thickness=3)
+    cv2.polylines(img=im0s, pts=[zoneB], isClosed = True, color = (51,255,94),   thickness=3)
+    cv2.polylines(img=im0s, pts=[zoneC], isClosed = True, color = (51,156,255),  thickness=3)
+    cv2.polylines(img=im0s, pts=[zoneD], isClosed = True, color = (255,50,250),  thickness=3)
+
+    # Play Mask
+    maks1 = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
+    maks1 = Image.fromarray(maks1)
+    maks1 = ImageTk.PhotoImage(image=maks1)
+    lblMask.configure(image=maks1)
+    lblMask.image = maks1
+
+    # Play Video
+    im0s = cv2.cvtColor(im0s, cv2.COLOR_RGB2BGR)
+    imagen = Image.fromarray(im0s)
+    img1 = ImageTk.PhotoImage(image=imagen)
+    lblVideo.configure(image=img1)
+    lblVideo.image = img1
+    lblVideo.after(10, load_video)
 
 
 if __name__ == '__main__':
@@ -299,20 +462,29 @@ if __name__ == '__main__':
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--view-img', action='store_true', help='display results')
-    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
-    parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--update', action='store_true', help='update all models')
-    parser.add_argument('--project', default='runs/detect', help='save results to project/name')
-    parser.add_argument('--name', default='exp', help='save results to project/name')
-    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     opt = parser.parse_args()
-    # print(opt)
 
     with torch.no_grad():
         detect()
+
+# ''' ############################# LOAD TKINTER #############################'''
+
+root = Tk()
+root.title = "Image Proccessing - TF"
+
+btnVisualizar = Button(root, text="Play", command=load_video)
+btnVisualizar.grid(column=0, row=0, padx=10, pady=5)
+
+# Video Container
+lblVideo = Label(root)
+lblVideo.grid(column = 0, row=1, columnspan = 5)
+
+# Mask Container
+lblMask = Label(root)
+lblMask.grid(column = 5, row = 1, columnspan = 5)
+
+root.mainloop()
