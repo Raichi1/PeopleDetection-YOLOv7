@@ -3,12 +3,12 @@ Members:
   - John Davis Sovero Cubillas
 ----
 Clone repository\n
-  `git clone https://github.com/Raichi1/PeopleDetection-YOLOv7.git`
+  <br>`git clone https://github.com/Raichi1/PeopleDetection-YOLOv7.git`<\br>
   
 ----
 Download requirements\n
-  `pip install -r requirements.txt`
+  <br>`pip install -r requirements.txt`<\br>
   
 ----
 Execute detect.py\n
-  `python detect.py --weights yolov7 --source (Video.mp4)`
+  <br>`python detect.py --weights yolov7 --source (Video.mp4)`<\br>
