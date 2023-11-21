@@ -7,7 +7,6 @@ Clone repository
 ----
 Download requirements
   pip install -r requirements.txt
-  
 ----
 Execute detect.py
   python detect.py --weights yolov7 --source (Video.mp4)
